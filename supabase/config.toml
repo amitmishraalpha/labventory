@@ -1,2 +1,5 @@
 [functions.invite-researcher]
 verify_jwt = false
+
+[functions.sync-flash-holidays]
+verify_jwt = false

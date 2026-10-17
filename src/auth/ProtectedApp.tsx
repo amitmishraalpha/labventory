@@ -6,6 +6,7 @@ import LoginPage from './LoginPage'
 import AppShell, { ChemicalsPage, InventoryPage, OverviewPage } from '../AnalyticsDashboardApp'
 import AdminWorkspacePage from '../AdminWorkspacePage'
 import { InventoryProvider } from '../data/InventoryProvider'
+import FlashPage from '../flash/FlashPage'
 
 function Blocked({ title, children }: { title: string; children: ReactNode }) {
   const { signOut } = useAuth()
@@ -33,6 +34,7 @@ export default function ProtectedApp() {
         <Route index element={<OverviewPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="chemicals" element={<ChemicalsPage />} />
+        <Route path="flash" element={<FlashPage />} />
         <Route path="admin" element={<RequireAdmin><AdminWorkspacePage /></RequireAdmin>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

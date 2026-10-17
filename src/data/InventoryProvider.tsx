@@ -1,17 +1,28 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
+import { convert } from '../lib/units'
 
 export type Range = '30d' | '3m' | '6m' | '12m'
 export type Bottle = {
   id: string; bottle_id: string; chemical_id: string; chemical: string; cas: string | null; formula: string | null
   quantity: number; unit: string | null; initial: number | null; size: number | null; sizeUnit: string | null
-  manufacturer: string | null; supplier: string; location: string; expiry: string | null; status: string
+  manufacturer: string | null; supplier: string; location: string; place: string | null; tray: string | null; expiry: string | null; status: string
 }
+/** Percent of the initial quantity left (initial = recorded initial quantity, else bottle size); null if not comparable. */
+export function percentLeft(b: Bottle) {
+  const initial = b.initial != null && b.initial > 0 ? { value: b.initial, unit: b.unit } : b.size != null && b.size > 0 ? { value: b.size, unit: b.sizeUnit } : null
+  const base = initial ? convert(initial.value, initial.unit, b.unit) : NaN
+  return Number.isFinite(base) && base > 0 && Number.isFinite(b.quantity) ? b.quantity / base * 100 : null
+}
+/** Shared low-quantity rule: below 20% of the initial quantity. Used by Overview, Inventory and the Admin table. */
+export const isLowQuantity = (b: Bottle) => { const pct = percentLeft(b); return pct !== null && pct < 20 }
+export const initialOf = (b: Bottle) => (b.initial != null && b.initial > 0 ? { value: b.initial, unit: b.unit } : b.size != null && b.size > 0 ? { value: b.size, unit: b.sizeUnit } : null)
+
 export type Chemical = { id: string; name: string; cas: string | null; formula: string | null; hazardous: boolean; state: string | null; storage: string | null }
-export type Usage = { created_at: string; quantity_change: number; quantity_unit: string | null }
+export type Usage = { id: string; created_at: string; quantity_change: number; quantity_unit: string | null; user_id: string; purpose: string | null; chemical: string; make: string | null; bottle_id: string }
 
 type InventoryContextValue = {
-  bottles: Bottle[]; chemicals: Chemical[]; usage: Usage[]; range: Range; setRange: (range: Range) => void
+  bottles: Bottle[]; chemicals: Chemical[]; usage: Usage[]; people: Map<string, string>; range: Range; setRange: (range: Range) => void
   loading: boolean; usageLoading: boolean; error: string; realtime: 'connecting' | 'live' | 'offline'; lastLoaded: Date | null
   refresh: () => Promise<void>
 }
@@ -39,7 +50,7 @@ async function loadBottles(): Promise<Bottle[]> {
       id: row.id, bottle_id: row.bottle_id, chemical_id: row.chemical_id, chemical: chemical?.name ?? 'Unnamed chemical', cas: chemical?.cas_number ?? null, formula: chemical?.molecular_formula ?? null,
       quantity: Number(row.current_quantity), unit: row.quantity_unit, initial: row.initial_quantity == null ? null : Number(row.initial_quantity), size: row.bottle_size == null ? null : Number(row.bottle_size), sizeUnit: row.bottle_size_unit,
       manufacturer: row.manufacturer, supplier: supplier?.vendor_name ?? 'Unknown supplier',
-      location: [location?.room, location?.cabinet, location?.shelf, location?.tray].filter(Boolean).join(' / ') || 'Location unavailable', expiry: row.expiry_date, status: row.status,
+      location: [location?.room, location?.cabinet, location?.shelf, location?.tray].filter(Boolean).join(' / ') || 'Location unavailable', place: location?.room ?? null, tray: location?.tray ?? null, expiry: row.expiry_date, status: row.status,
     }
   })
 }
@@ -49,12 +60,17 @@ async function loadChemicals(): Promise<Chemical[]> {
 }
 async function loadUsage(range: Range): Promise<Usage[]> {
   // Only genuine USAGE transactions; STOCK_IN rows from imports are excluded by design.
-  const rows = await fetchAll<any>((from, to) => supabase.from('transactions').select('created_at,quantity_change,bottles(quantity_unit)').eq('transaction_type', 'USAGE').gte('created_at', startFor(range).toISOString()).order('created_at', { ascending: true }).range(from, to))
-  return rows.map(row => ({ created_at: row.created_at, quantity_change: Number(row.quantity_change), quantity_unit: one<any>(row.bottles)?.quantity_unit ?? null }))
+  const rows = await fetchAll<any>((from, to) => supabase.from('transactions').select('id,created_at,quantity_change,user_id,reason,bottle_id,bottles(quantity_unit,manufacturer,chemicals(name))').eq('transaction_type', 'USAGE').gte('created_at', startFor(range).toISOString()).order('created_at', { ascending: true }).range(from, to))
+  return rows.map(row => { const bottle = one<any>(row.bottles); return { id: row.id, created_at: row.created_at, quantity_change: Number(row.quantity_change), quantity_unit: bottle?.quantity_unit ?? null, user_id: row.user_id, purpose: row.reason, chemical: one<any>(bottle?.chemicals)?.name ?? 'Unnamed chemical', make: bottle?.manufacturer ?? null, bottle_id: row.bottle_id } })
+}
+async function loadPeople(): Promise<Map<string, string>> {
+  // RLS: the Admin sees every profile, a researcher only their own.
+  const { data } = await supabase.from('profiles').select('id,full_name,email')
+  return new Map((data ?? []).map((row: any) => [row.id, row.full_name || row.email]))
 }
 
 export function InventoryProvider({ children }: { children: ReactNode }) {
-  const [bottles, setBottles] = useState<Bottle[]>([]); const [chemicals, setChemicals] = useState<Chemical[]>([]); const [usage, setUsage] = useState<Usage[]>([])
+  const [bottles, setBottles] = useState<Bottle[]>([]); const [chemicals, setChemicals] = useState<Chemical[]>([]); const [usage, setUsage] = useState<Usage[]>([]); const [people, setPeople] = useState<Map<string, string>>(new Map())
   const [range, setRange] = useState<Range>('6m'); const [loading, setLoading] = useState(true); const [usageLoading, setUsageLoading] = useState(true)
   const [error, setError] = useState(''); const [realtime, setRealtime] = useState<InventoryContextValue['realtime']>('connecting'); const [lastLoaded, setLastLoaded] = useState<Date | null>(null)
   const rangeRef = useRef(range); rangeRef.current = range
@@ -71,9 +87,9 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     const current = ++generation.current
     setError('')
     try {
-      const [nextBottles, nextChemicals, nextUsage] = await Promise.all([loadBottles(), loadChemicals(), loadUsage(rangeRef.current)])
+      const [nextBottles, nextChemicals, nextUsage, nextPeople] = await Promise.all([loadBottles(), loadChemicals(), loadUsage(rangeRef.current), loadPeople()])
       if (current !== generation.current) return
-      setBottles(nextBottles); setChemicals(nextChemicals); setUsage(nextUsage); setLastLoaded(new Date())
+      setBottles(nextBottles); setChemicals(nextChemicals); setUsage(nextUsage); setPeople(nextPeople); setLastLoaded(new Date())
     } catch (loadError) { if (current === generation.current) setError(loadError instanceof Error ? loadError.message : 'Unable to load inventory.') }
     finally { if (current === generation.current) { setLoading(false); setUsageLoading(false) } }
   }, [])
@@ -95,7 +111,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', schedule); void supabase.removeChannel(channel) }
   }, [refresh])
 
-  return <InventoryContext.Provider value={{ bottles, chemicals, usage, range, setRange, loading, usageLoading, error, realtime, lastLoaded, refresh }}>{children}</InventoryContext.Provider>
+  return <InventoryContext.Provider value={{ bottles, chemicals, usage, people, range, setRange, loading, usageLoading, error, realtime, lastLoaded, refresh }}>{children}</InventoryContext.Provider>
 }
 export function useInventory() {
   const value = useContext(InventoryContext)

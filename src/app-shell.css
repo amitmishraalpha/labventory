@@ -20,8 +20,65 @@ a.nav-item{text-decoration:none;box-sizing:border-box}
 .mapping-grid label b{color:#b85e54}
 .mapping-grid select{height:32px;border:1px solid #d5e2dc;border-radius:5px;background:white;font-size:11px;padding:0 6px}
 .import-summary{margin-top:16px;display:grid;gap:12px}
-.import-stats{grid-template-columns:repeat(5,1fr)}
+.import-stats{grid-template-columns:repeat(4,1fr)}
 .skip-check{display:flex;gap:8px;align-items:center;font-size:12px;color:#53665e;margin:8px 0}
 .wrap-cell{white-space:normal;min-width:320px}
 button:disabled,.primary:disabled,.secondary:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:800px){.import-stats{grid-template-columns:1fr 1fr}}
+.low-note{color:#a67817}
+.overview-lists{margin-top:15px}
+.compact-table{min-width:0}
+.compact-table td{white-space:normal}
+.compact-table .wrap-cell{min-width:0}
+.panel-foot{padding:10px 20px;margin:0}
+.page-notice{margin-bottom:14px}
+.usage-amount{display:flex;gap:8px;margin-top:6px}
+.usage-amount input{flex:1;margin-top:0!important}
+.usage-amount select{border:1px solid #d5e2dc;border-radius:5px;background:white;padding:0 8px;font-size:12px}
+.text-button{text-decoration:none}
+.pubchem-link{display:inline-flex;align-items:center;gap:3px;margin-left:8px;padding:2px 6px;border:1px solid #d5e6df;border-radius:10px;font-size:10px;font-weight:600;color:#287c70;background:#f3f9f6;text-decoration:none;white-space:nowrap}
+.pubchem-link:hover,.pubchem-link:focus{background:#e3f1eb;border-color:#a9d2c4;outline:0}
+
+/* Flash chromatography */
+.flash-page{display:grid;gap:16px}
+.flash-page .title-row{margin-bottom:6px}
+.flash-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:15px;align-items:start}
+.flash-book,.flash-upcoming,.flash-holidays{padding-bottom:18px}
+.flash-date{display:flex;align-items:center;gap:6px;border:1px solid #d5e2dc;border-radius:5px;padding:0 8px;height:32px;color:#52665e}
+.flash-date input{border:0;outline:0;font-size:12px;background:transparent}
+.day-strip{display:flex;gap:6px;overflow-x:auto;padding:14px 20px 4px}
+.day-chip{flex:0 0 62px;display:grid;gap:1px;text-align:center;border:1px solid #dce7e2;border-radius:7px;background:#fff;padding:7px 4px;color:#52665e}
+.day-chip span{font-size:10px;text-transform:uppercase;color:#8b9894}
+.day-chip b{font:600 16px 'Space Grotesk';color:#20332f}
+.day-chip small{font-size:9px;color:#287c70}
+.day-chip.active{border-color:#287c70;box-shadow:0 0 0 2px #287c7030;background:#f3f9f6}
+.day-chip.holiday small{color:#b85e54}
+.day-chip.holiday{background:#fdf6f5}
+.flash-day-head{display:flex;align-items:center;justify-content:space-between;padding:12px 20px 4px}
+.flash-day-head h3{font:600 14px 'Space Grotesk';margin:0;color:#20332f}
+.flash-holiday{margin:8px 20px;display:flex;gap:8px;align-items:center;background:#fceeed;color:#b85e54;border-radius:6px;padding:10px 12px;font-size:12px}
+.flash-book>.user-error{margin:8px 20px}
+.slot-list{display:grid;gap:6px;padding:8px 20px}
+.slot{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #e3ebe7;border-radius:6px;padding:8px 10px;min-height:42px;font-size:12px}
+.slot-time{display:inline-flex;align-items:center;gap:6px;color:#38514a;font-weight:600}
+.slot-booked{background:#f4f7f6}
+.slot-booked .slot-who{text-align:right;display:grid}
+.slot-booked .slot-who small{color:#82908a;font-size:10px}
+.slot-past,.slot-holiday{opacity:.6}
+.slot.selected{border-color:#287c70;background:#eef7f3}
+.slot-pick{padding:6px 10px}
+.flash-form{display:grid;grid-template-columns:1fr 1.4fr auto;gap:10px;align-items:end;padding:10px 20px 0}
+.flash-form label{display:grid;gap:4px;font-size:11px;font-weight:700;color:#53665e}
+.flash-form label small{font-weight:400;color:#94a19b}
+.flash-form select,.flash-form input{height:36px;border:1px solid #d5e2dc;border-radius:5px;padding:0 8px;font-size:12px;background:#fff}
+.upcoming-list{display:grid;gap:6px;padding:14px 20px 0;max-height:640px;overflow:auto}
+.upcoming{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #e3ebe7;border-radius:6px;padding:9px 10px;font-size:12px}
+.upcoming div{display:grid;gap:2px}
+.upcoming span{color:#75827e;font-size:11px}
+.upcoming.mine{border-color:#b9dccf;background:#f3f9f6}
+.flash-histogram .chart{height:280px;padding:0 10px 10px}
+.flash-histogram input[type=month]{width:auto}
+.flash-holidays form{padding:0 20px}
+.flash-holidays form input{height:34px;border:1px solid #d5e2dc;border-radius:5px;padding:0 8px;font-size:12px}
+.flash-holidays form input:not([type=date]){flex:1;min-width:180px}
+@media(max-width:1000px){.flash-grid{grid-template-columns:1fr}.flash-form{grid-template-columns:1fr}}

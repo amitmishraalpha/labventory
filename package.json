@@ -24,6 +24,7 @@
     "@types/papaparse": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "supabase": "^2.121.0",
     "typescript": "latest"
   }
 }

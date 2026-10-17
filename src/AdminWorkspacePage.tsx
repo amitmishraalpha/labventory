@@ -4,12 +4,13 @@ import { ArrowLeft, Download, FileSpreadsheet, RefreshCw, UserPlus, UserX } from
 import * as XLSX from 'xlsx'
 import { getSupabaseErrorMessage, supabase } from './lib/supabase'
 import { useAuth } from './auth/AuthProvider'
-import { useInventory } from './data/InventoryProvider'
+import { initialOf, percentLeft, useInventory } from './data/InventoryProvider'
 import ImportPanel from './import/ImportPanel'
+import PubChemLink from './lib/PubChemLink'
 
 type User = { id: string; email: string; full_name: string; account_status: string; invited_at: string | null; created_at: string }
 type Activity = { id: string; action_type: string; actor_user_id: string; target_user_id: string | null; metadata: Record<string, any>; created_at: string }
-type Low = { id: string; bottle: string; chemical: string; initial: number; current: number; unit: string; percentage: number }
+type Low = { id: string; chemical: string; cas: string | null; make: string | null; place: string; current: number; unit: string; initial: number; initialUnit: string; percentage: number }
 const tabs = [['researchers', 'Researchers'], ['import', 'Import'], ['export', 'Export'], ['activity', 'Activity']] as const
 type Tab = typeof tabs[number][0]
 const actionLabels: Record<string, string> = { INVENTORY_IMPORT: 'Inventory imported', INVITATION_SENT: 'Invitation sent', INVITATION_ACCEPTED: 'Invitation accepted', CHEMICAL_USAGE: 'Usage recorded', RESEARCHER_SUSPENDED: 'Researcher deactivated', RESEARCHER_ACTIVE: 'Researcher restored', RESEARCHER_REMOVED: 'Researcher removed' }
@@ -53,8 +54,13 @@ export default function AdminWorkspacePage() {
     if (profile) await supabase.from('activity_log').insert({ actor_user_id: profile.id, action_type: 'RESEARCHER_SUSPENDED', target_user_id: user.id, metadata: { email: user.email } })
     setMessage(`${user.email} deactivated.`); await load()
   }
-  const low = useMemo<Low[]>(() => bottles.flatMap(b => { const initial = b.initial ?? NaN; if (!Number.isFinite(initial) || initial <= 0 || !Number.isFinite(b.quantity) || b.quantity / initial * 100 >= 20) return []; return [{ id: b.id, bottle: b.bottle_id, chemical: b.chemical, initial, current: b.quantity, unit: b.unit ?? '', percentage: b.quantity / initial * 100 }] }), [bottles])
-  const exportRows = useMemo(() => bottles.map(b => ({ 'Chemical Name': b.chemical, 'CAS Number': b.cas ?? '', 'Bottle ID': b.bottle_id, Manufacturer: b.manufacturer ?? '', 'Bottle Size': b.size ?? '', 'Bottle Size Unit': b.sizeUnit ?? '', 'Initial Quantity': b.initial ?? '', 'Available Quantity': b.quantity, Unit: b.unit ?? '', Supplier: b.supplier, Location: b.location, 'Expiry Date': b.expiry ?? '', Status: b.status })), [bottles])
+  // Low quantity: remaining below 20% of the initial quantity (shared rule, see percentLeft).
+  const low = useMemo<Low[]>(() => bottles.flatMap(b => {
+    const percentage = percentLeft(b); const initial = initialOf(b)
+    return percentage !== null && percentage < 20 && initial ? [{ id: b.id, chemical: b.chemical, cas: b.cas, make: b.manufacturer, place: [b.place, b.tray].filter(Boolean).join(' / '), current: b.quantity, unit: b.unit ?? '', initial: initial.value, initialUnit: initial.unit ?? '', percentage }] : []
+  }).sort((a, b) => a.percentage - b.percentage), [bottles])
+  // Same columns as the laboratory chemicals register, one row per physical bottle.
+  const exportRows = useMemo(() => bottles.map((b, index) => ({ 'S.No': index + 1, 'Chemical Name': b.chemical, 'Cas No': b.cas ?? '', Make: b.manufacturer ?? '', 'Bottle size': b.size != null ? `${b.size} ${b.sizeUnit ?? ''}`.trim() : '', 'Approx available quantity (g/mL)': `${b.quantity} ${b.unit ?? ''}`.trim(), Place: b.place ?? '', 'Tray No.': b.tray ?? '' })), [bottles])
   const exportFile = (type: 'csv' | 'xlsx') => { const sheet = XLSX.utils.json_to_sheet(exportRows); if (type === 'csv') { const url = URL.createObjectURL(new Blob([XLSX.utils.sheet_to_csv(sheet)], { type: 'text/csv' })); const link = document.createElement('a'); link.href = url; link.download = 'labventory-inventory.csv'; link.click(); URL.revokeObjectURL(url) } else { const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, sheet, 'Inventory'); XLSX.writeFile(book, 'labventory-inventory.xlsx') } }
   const filtered = useMemo(() => users.filter(user => `${user.email} ${user.full_name} ${user.account_status}`.toLowerCase().includes(search.toLowerCase())), [users, search])
   const onImported = useCallback(async () => { await Promise.all([refreshInventory(), load()]) }, [refreshInventory, load])
@@ -64,4 +70,4 @@ export default function AdminWorkspacePage() {
     : tab === 'export' ? <section className="panel admin-section"><h2>Export inventory</h2><p>{exportRows.length} bottles loaded from Supabase.</p><div className="export-actions"><button className="primary" onClick={() => exportFile('xlsx')}><FileSpreadsheet size={16}/> Download XLSX</button><button className="secondary" onClick={() => exportFile('csv')}><Download size={16}/> Download CSV</button></div></section>
     : <section className="panel admin-section"><h2>Activity history</h2><p>Append-only audit trail. Only the Admin can read it; nobody can edit or delete entries.</p>{events.map(event => <div className="activity-row" key={event.id}><b>{actionLabels[event.action_type] ?? event.action_type}</b><span>{new Date(event.created_at).toLocaleString()} · {names.get(event.actor_user_id) ?? event.actor_user_id}</span><small>{describe(event, names)}</small></div>)}{!events.length && <p>No activity records found.</p>}</section>}</div>
 }
-function LowTable({ rows }: { rows: Low[] }) { return <section className="panel admin-section"><h2>Low-quantity inventory</h2><p>Strictly below 20% of initial quantity.</p><div className="table-wrap"><table><thead><tr><th>CHEMICAL</th><th>BOTTLE</th><th>REMAINING</th><th>CAPACITY</th><th>PERCENTAGE</th></tr></thead><tbody>{rows.map(row => <tr key={row.id}><td>{row.chemical}</td><td>{row.bottle}</td><td>{row.current} {row.unit}</td><td>{row.initial} {row.unit}</td><td>{row.percentage.toFixed(1)}%</td></tr>)}{!rows.length && <tr><td colSpan={5}>No bottles are below 20%.</td></tr>}</tbody></table></div></section> }
+function LowTable({ rows }: { rows: Low[] }) { return <section className="panel admin-section"><h2>Low-quantity inventory</h2><p>Bottles whose remaining quantity is below 20% of the initial quantity. Updates as soon as a researcher records usage.</p><div className="table-wrap"><table><thead><tr><th>CHEMICAL NAME</th><th>CAS NO</th><th>MAKE</th><th>PLACE / TRAY</th><th>REMAINING</th><th>INITIAL</th><th>% LEFT</th></tr></thead><tbody>{rows.map(row => <tr key={row.id}><td><b>{row.chemical}</b> <PubChemLink name={row.chemical} cas={row.cas}/></td><td className="mono">{row.cas ?? '—'}</td><td>{row.make ?? '—'}</td><td>{row.place || '—'}</td><td><b>{row.current} {row.unit}</b></td><td>{row.initial} {row.initialUnit}</td><td><b className="low-note">{row.percentage.toFixed(1)}%</b></td></tr>)}{!rows.length && <tr><td colSpan={7}>No bottles are below 20% of their initial quantity.</td></tr>}</tbody></table></div></section> }
