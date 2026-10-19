@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
-import { authLinkType, supabase, supabaseConfigured } from '../lib/supabase'
+import { authLinkError, authLinkType, supabase, supabaseConfigured } from '../lib/supabase'
 import type { Profile } from './types'
 
 export type ProfileStatus = 'idle' | 'loading' | 'ready' | 'missing' | 'error'
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Guards against out-of-order responses when users switch or tokens refresh mid-request.
   const requestId = useRef(0)
   const loadedUserId = useRef<string | null>(null)
+  const signedOutForBadLink = useRef(false)
 
   const loadProfile = useCallback(async (userId: string, background = false) => {
     const current = ++requestId.current
@@ -49,6 +50,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!supabaseConfigured) return
     const handle = (event: AuthChangeEvent, next: Session | null) => {
+      // An invitation / reset link that failed (expired, already used) must not leave whoever was
+      // signed in before in this browser (e.g. the Admin) in the workspace: sign them out so the
+      // sign-in page shows why the link did not work.
+      // Only the session that existed when the link was opened (INITIAL_SESSION); a normal sign-in
+      // afterwards on the same page must not be undone.
+      if (event === 'INITIAL_SESSION' && authLinkError && !signedOutForBadLink.current) {
+        signedOutForBadLink.current = true
+        window.history.replaceState(null, '', window.location.pathname) // drop the error fragment
+        if (next) { void supabase.auth.signOut({ scope: 'local' }); return }
+      }
       setSession(next); setSessionKnown(true)
       if (event === 'PASSWORD_RECOVERY') setNeedsPassword(true)
       if (event === 'SIGNED_OUT') setNeedsPassword(false)
