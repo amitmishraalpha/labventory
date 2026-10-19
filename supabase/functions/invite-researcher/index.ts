@@ -34,10 +34,10 @@ Deno.serve(async request => {
   try { const target = new URL(body.redirect_to ?? ''); if (target.protocol === 'http:' || target.protocol === 'https:') redirectTo = `${target.origin}/` } catch { /* no redirect */ }
 
   if (body.action === 'resend') {
-    // Only researchers who have not activated their account yet can be sent a new link.
+    // Invited or active researchers (not deactivated ones) can be sent a new link.
     const { data: target } = await admin.from('profiles').select('id,email,full_name,role,account_status').eq('id', body.user_id ?? '').maybeSingle()
     if (!target || target.role !== 'RESEARCHER') return json({ error: 'Researcher not found' }, 404)
-    if (target.account_status !== 'invited') return json({ error: 'This researcher has already activated their account; they can use “Forgot your password?” on the sign-in page.' }, 400)
+    if (target.account_status !== 'invited' && target.account_status !== 'active') return json({ error: 'This researcher is deactivated; restore them first.' }, 400)
     const { data: authData } = await admin.auth.admin.getUserById(target.id)
     const authUser = authData?.user
     if (!authUser?.email) return json({ error: 'This researcher has no sign-in account; invite them again with their email.' }, 404)
@@ -51,7 +51,7 @@ Deno.serve(async request => {
       const { error: recoveryError } = await admin.auth.resetPasswordForEmail(authUser.email, { redirectTo })
       if (recoveryError) return json({ error: recoveryError.message }, 400)
     }
-    await admin.from('profiles').update({ invited_at: new Date().toISOString(), invited_by: caller.id, updated_at: new Date().toISOString() }).eq('id', target.id)
+    if (target.account_status === 'invited') await admin.from('profiles').update({ invited_at: new Date().toISOString(), invited_by: caller.id, updated_at: new Date().toISOString() }).eq('id', target.id)
     await admin.from('activity_log').insert({ actor_user_id: caller.id, target_user_id: target.id, action_type: 'INVITATION_RESENT', metadata: { email: authUser.email, method } })
     return json({ resent: true, method, email: authUser.email })
   }
