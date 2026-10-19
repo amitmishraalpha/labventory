@@ -27,7 +27,35 @@ Deno.serve(async request => {
   const { data: callerProfile } = await admin.from('profiles').select('role,account_status').eq('id', caller.id).single()
   if (callerProfile?.role !== 'ADMIN' || callerProfile.account_status !== 'active') return json({ error: 'Only the active Admin can invite researchers' }, 403)
 
-  const body = await request.json().catch(() => ({})) as { email?: string; full_name?: string | null }
+  const body = await request.json().catch(() => ({})) as { action?: 'invite' | 'resend'; user_id?: string; email?: string; full_name?: string | null; redirect_to?: string }
+  // Where the email link returns to (the app's address). Supabase only honours it when it is
+  // listed under Auth > URL Configuration > Redirect URLs; otherwise it falls back to the Site URL.
+  let redirectTo: string | undefined
+  try { const target = new URL(body.redirect_to ?? ''); if (target.protocol === 'http:' || target.protocol === 'https:') redirectTo = `${target.origin}/` } catch { /* no redirect */ }
+
+  if (body.action === 'resend') {
+    // Only researchers who have not activated their account yet can be sent a new link.
+    const { data: target } = await admin.from('profiles').select('id,email,full_name,role,account_status').eq('id', body.user_id ?? '').maybeSingle()
+    if (!target || target.role !== 'RESEARCHER') return json({ error: 'Researcher not found' }, 404)
+    if (target.account_status !== 'invited') return json({ error: 'This researcher has already activated their account; they can use “Forgot your password?” on the sign-in page.' }, 400)
+    const { data: authData } = await admin.auth.admin.getUserById(target.id)
+    const authUser = authData?.user
+    if (!authUser?.email) return json({ error: 'This researcher has no sign-in account; invite them again with their email.' }, 404)
+    let method: 'invite' | 'set-password' = 'invite'
+    // Never-opened invitations are re-sent. If an earlier link was already opened (email confirmed),
+    // Supabase refuses a re-invite, so send a set-password link instead; the app shows the same
+    // "Set your password" screen and activates the account.
+    const reinvite = authUser.email_confirmed_at ? { error: { message: 'confirmed' } } : await admin.auth.admin.inviteUserByEmail(authUser.email, { data: { full_name: target.full_name, role: 'RESEARCHER' }, redirectTo })
+    if (reinvite.error) {
+      method = 'set-password'
+      const { error: recoveryError } = await admin.auth.resetPasswordForEmail(authUser.email, { redirectTo })
+      if (recoveryError) return json({ error: recoveryError.message }, 400)
+    }
+    await admin.from('profiles').update({ invited_at: new Date().toISOString(), invited_by: caller.id, updated_at: new Date().toISOString() }).eq('id', target.id)
+    await admin.from('activity_log').insert({ actor_user_id: caller.id, target_user_id: target.id, action_type: 'INVITATION_RESENT', metadata: { email: authUser.email, method } })
+    return json({ resent: true, method, email: authUser.email })
+  }
+
   const email = body.email?.trim().toLowerCase() ?? ''
   const fullName = body.full_name?.trim() || 'Pending researcher'
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Enter a valid email address' }, 400)
@@ -38,7 +66,7 @@ Deno.serve(async request => {
   const { data: usersPage } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
   if (usersPage?.users.some(user => user.email?.toLowerCase() === email)) return json({ error: 'This email already has an Auth account' }, 409)
 
-  const { data: invitation, error: invitationError } = await admin.auth.admin.inviteUserByEmail(email, { data: { full_name: fullName, role: 'RESEARCHER' } })
+  const { data: invitation, error: invitationError } = await admin.auth.admin.inviteUserByEmail(email, { data: { full_name: fullName, role: 'RESEARCHER' }, redirectTo })
   if (invitationError || !invitation.user) return json({ error: invitationError?.message ?? 'Invitation could not be sent' }, 400)
   const { error: profileError } = await admin.from('profiles').insert({ id: invitation.user.id, email, full_name: fullName, role: 'RESEARCHER', account_status: 'invited', invited_by: caller.id, invited_at: new Date().toISOString() })
   if (profileError) { await admin.auth.admin.deleteUser(invitation.user.id); return json({ error: 'Invitation was not saved. Please try again.' }, 500) }

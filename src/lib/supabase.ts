@@ -4,6 +4,14 @@ const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const supabaseConfigured = Boolean(url && anonKey)
+
+// Read invitation / password-recovery links before supabase-js consumes and clears the URL.
+const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+const query = new URLSearchParams(window.location.search)
+/** 'invite' or 'recovery' when the page was opened from such an email link. */
+export const authLinkType = fragment.get('type') ?? query.get('type')
+/** Supabase's reason when an email link is expired or already used. */
+export const authLinkError = fragment.get('error_description') ?? query.get('error_description')
 export const supabase = createClient(url ?? 'https://placeholder.supabase.co', anonKey ?? 'placeholder-anon-key')
 
 export async function getSupabaseErrorMessage(error: unknown, fallback: string) {

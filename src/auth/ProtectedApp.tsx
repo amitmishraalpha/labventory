@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { supabaseConfigured } from '../lib/supabase'
 import { useAuth } from './AuthProvider'
 import LoginPage from './LoginPage'
+import SetPasswordPage from './SetPasswordPage'
 import AppShell, { ChemicalsPage, InventoryPage, OverviewPage } from '../AnalyticsDashboardApp'
 import AdminWorkspacePage from '../AdminWorkspacePage'
 import { InventoryProvider } from '../data/InventoryProvider'
@@ -20,7 +21,7 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 }
 
 export default function ProtectedApp() {
-  const { session, profile, profileStatus, profileError, loading, reloadProfile } = useAuth()
+  const { session, profile, profileStatus, profileError, loading, needsPassword, reloadProfile } = useAuth()
   useEffect(() => { document.title = profile?.role === 'ADMIN' ? 'Labventory | Admin' : 'Labventory | Chemical intelligence' }, [profile])
   if (!supabaseConfigured) return <LoginPage />
   if (loading) return <div className="auth-loading">Loading secure workspace...</div>
@@ -28,6 +29,8 @@ export default function ProtectedApp() {
   if (profileStatus === 'error') return <Blocked title="Profile could not be loaded"><p>{profileError}</p><button className="primary" onClick={() => void reloadProfile()}>Try again</button></Blocked>
   if (!profile) return <Blocked title="No profile for this account"><p>{session.user.email} is signed in but has no Labventory profile. Contact the designated administrator.</p></Blocked>
   if (profile.account_status !== 'active') return <Blocked title="Access unavailable"><p>This account is {profile.account_status}. Contact the designated administrator.</p></Blocked>
+  // First visit from an invitation (or a reset link): choose a password before entering.
+  if (needsPassword) return <SetPasswordPage />
   return <InventoryProvider key={profile.id}>
     <Routes>
       <Route element={<AppShell />}>

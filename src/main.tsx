@@ -11,5 +11,8 @@ import './analytics.css'
 import './admin-page.css'
 import './admin-workspace.css'
 import './app-shell.css'
+import './mobile.css'
+import { startTableLabels } from './lib/tableLabels'
 
+startTableLabels()
 createRoot(document.getElementById('root')!).render(<StrictMode><BrowserRouter><AuthProvider><ProtectedApp /></AuthProvider></BrowserRouter></StrictMode>)

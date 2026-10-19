@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { convert } from '../lib/units'
 
@@ -18,11 +18,21 @@ export function percentLeft(b: Bottle) {
 export const isLowQuantity = (b: Bottle) => { const pct = percentLeft(b); return pct !== null && pct < 20 }
 export const initialOf = (b: Bottle) => (b.initial != null && b.initial > 0 ? { value: b.initial, unit: b.unit } : b.size != null && b.size > 0 ? { value: b.size, unit: b.sizeUnit } : null)
 
+/** A chemical from a particular make. The same CAS from two makes is two separate chemicals here. */
+export type ChemicalGroup = { key: string; chemical_id: string; name: string; cas: string | null; make: string | null; bottles: Bottle[]; low: Bottle[] }
+export const groupKey = (b: { chemical_id: string; manufacturer: string | null }) => `${b.chemical_id}|${(b.manufacturer ?? '').trim().toLowerCase()}`
+/** "1 of 3 bottles is below 20%" style summary for a group with at least one low bottle. */
+export function lowSummary(group: ChemicalGroup) {
+  const n = group.low.length, total = group.bottles.length
+  if (!n) return ''
+  return total === 1 ? 'This bottle is below 20% of its initial quantity' : `${n} of ${total} bottles ${n === 1 ? 'is' : 'are'} below 20% of the initial quantity`
+}
+
 export type Chemical = { id: string; name: string; cas: string | null; formula: string | null; hazardous: boolean; state: string | null; storage: string | null }
 export type Usage = { id: string; created_at: string; quantity_change: number; quantity_unit: string | null; user_id: string; purpose: string | null; chemical: string; make: string | null; bottle_id: string }
 
 type InventoryContextValue = {
-  bottles: Bottle[]; chemicals: Chemical[]; usage: Usage[]; people: Map<string, string>; range: Range; setRange: (range: Range) => void
+  bottles: Bottle[]; chemicals: Chemical[]; groups: ChemicalGroup[]; groupOf: Map<string, ChemicalGroup>; usage: Usage[]; people: Map<string, string>; range: Range; setRange: (range: Range) => void
   loading: boolean; usageLoading: boolean; error: string; realtime: 'connecting' | 'live' | 'offline'; lastLoaded: Date | null
   refresh: () => Promise<void>
 }
@@ -111,7 +121,20 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
     return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', schedule); void supabase.removeChannel(channel) }
   }, [refresh])
 
-  return <InventoryContext.Provider value={{ bottles, chemicals, usage, people, range, setRange, loading, usageLoading, error, realtime, lastLoaded, refresh }}>{children}</InventoryContext.Provider>
+  const { groups, groupOf } = useMemo(() => {
+    const map = new Map<string, ChemicalGroup>()
+    for (const b of bottles) {
+      const key = groupKey(b); let g = map.get(key)
+      if (!g) { g = { key, chemical_id: b.chemical_id, name: b.chemical, cas: b.cas, make: b.manufacturer?.trim() || null, bottles: [], low: [] }; map.set(key, g) }
+      g.bottles.push(b); if (isLowQuantity(b) || b.quantity <= 0) g.low.push(b)
+    }
+    // Chemicals with no bottles left still appear once.
+    const withBottles = new Set(bottles.map(b => b.chemical_id))
+    for (const c of chemicals) if (!withBottles.has(c.id)) map.set(`${c.id}|`, { key: `${c.id}|`, chemical_id: c.id, name: c.name, cas: c.cas, make: null, bottles: [], low: [] })
+    const list = [...map.values()].sort((a, b) => a.name.localeCompare(b.name) || (a.make ?? '').localeCompare(b.make ?? ''))
+    return { groups: list, groupOf: map }
+  }, [bottles, chemicals])
+  return <InventoryContext.Provider value={{ bottles, chemicals, groups, groupOf, usage, people, range, setRange, loading, usageLoading, error, realtime, lastLoaded, refresh }}>{children}</InventoryContext.Provider>
 }
 export function useInventory() {
   const value = useContext(InventoryContext)

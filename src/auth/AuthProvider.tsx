@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
-import { supabase, supabaseConfigured } from '../lib/supabase'
+import { authLinkType, supabase, supabaseConfigured } from '../lib/supabase'
 import type { Profile } from './types'
 
 export type ProfileStatus = 'idle' | 'loading' | 'ready' | 'missing' | 'error'
@@ -10,10 +10,13 @@ type AuthContextValue = {
   profileStatus: ProfileStatus
   profileError: string
   loading: boolean
+  /** Opened from an invitation or password-reset email: the user must choose a password. */
+  needsPassword: boolean
+  passwordSet: () => void
   reloadProfile: () => Promise<void>
   signOut: () => Promise<void>
 }
-const AuthContext = createContext<AuthContextValue>({ session: null, profile: null, profileStatus: 'idle', profileError: '', loading: true, reloadProfile: async () => undefined, signOut: async () => undefined })
+const AuthContext = createContext<AuthContextValue>({ session: null, profile: null, profileStatus: 'idle', profileError: '', loading: true, needsPassword: false, passwordSet: () => undefined, reloadProfile: async () => undefined, signOut: async () => undefined })
 const profileColumns = 'id,email,full_name,role,account_status'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -22,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>('idle')
   const [profileError, setProfileError] = useState('')
   const [sessionKnown, setSessionKnown] = useState(!supabaseConfigured)
+  const [needsPassword, setNeedsPassword] = useState(authLinkType === 'invite' || authLinkType === 'recovery')
   // Guards against out-of-order responses when users switch or tokens refresh mid-request.
   const requestId = useRef(0)
   const loadedUserId = useRef<string | null>(null)
@@ -46,6 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!supabaseConfigured) return
     const handle = (event: AuthChangeEvent, next: Session | null) => {
       setSession(next); setSessionKnown(true)
+      if (event === 'PASSWORD_RECOVERY') setNeedsPassword(true)
+      if (event === 'SIGNED_OUT') setNeedsPassword(false)
       const userId = next?.user.id ?? null
       if (!userId) { requestId.current++; loadedUserId.current = null; setProfile(null); setProfileStatus('idle'); setProfileError(''); return }
       // Token refreshes keep the same identity; don't flash the workspace or refetch.
@@ -64,6 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => { await supabase.auth.signOut() }, [])
   const loading = !sessionKnown || (Boolean(session) && (profileStatus === 'idle' || profileStatus === 'loading'))
 
-  return <AuthContext.Provider value={{ session, profile, profileStatus, profileError, loading, reloadProfile, signOut }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ session, profile, profileStatus, profileError, loading, needsPassword, passwordSet: () => setNeedsPassword(false), reloadProfile, signOut }}>{children}</AuthContext.Provider>
 }
 export function useAuth() { return useContext(AuthContext) }

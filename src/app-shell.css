@@ -82,3 +82,9 @@ button:disabled,.primary:disabled,.secondary:disabled{opacity:.55;cursor:not-all
 .flash-holidays form input{height:34px;border:1px solid #d5e2dc;border-radius:5px;padding:0 8px;font-size:12px}
 .flash-holidays form input:not([type=date]){flex:1;min-width:180px}
 @media(max-width:1000px){.flash-grid{grid-template-columns:1fr}.flash-form{grid-template-columns:1fr}}
+
+.low-badge{display:inline-block;color:#a67817;background:#fff7df;border:1px solid #f2dfae;border-radius:10px;padding:3px 8px;font-size:10px;font-weight:600;white-space:normal}
+.ok-badge{display:inline-block;color:#287c70;background:#edf7f3;border-radius:10px;padding:3px 8px;font-size:10px;font-weight:600}
+.low-row td{background:#fffaf0}
+.only-low{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#53665e;white-space:nowrap}
+.researchers-list .panel-heading{padding-left:0;padding-right:0}
