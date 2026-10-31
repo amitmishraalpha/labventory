@@ -8,6 +8,10 @@ import AppShell, { ChemicalsPage, InventoryPage, OverviewPage } from '../Analyti
 import AdminWorkspacePage from '../AdminWorkspacePage'
 import { InventoryProvider } from '../data/InventoryProvider'
 import FlashPage from '../flash/FlashPage'
+import SolventsPage from '../solvents/SolventsPage'
+import LowStockPage from '../lowstock/LowStockPage'
+import OrdersPage from '../orders/OrdersPage'
+import { UsageHistoryPage } from '../usage/UsageHistory'
 
 function Blocked({ title, children }: { title: string; children: ReactNode }) {
   const { signOut } = useAuth()
@@ -37,6 +41,11 @@ export default function ProtectedApp() {
         <Route index element={<OverviewPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="chemicals" element={<ChemicalsPage />} />
+        <Route path="commercial-solvents" element={<SolventsPage key="commercial" category="COMMERCIAL_SOLVENT" />} />
+        <Route path="nmr-solvents" element={<SolventsPage key="nmr" category="NMR_SOLVENT" />} />
+        <Route path="low-stock" element={<LowStockPage />} />
+        <Route path="orders" element={<OrdersPage />} />
+        <Route path="usage" element={<UsageHistoryPage />} />
         <Route path="flash" element={<FlashPage />} />
         <Route path="admin" element={<RequireAdmin><AdminWorkspacePage /></RequireAdmin>} />
         <Route path="*" element={<Navigate to="/" replace />} />

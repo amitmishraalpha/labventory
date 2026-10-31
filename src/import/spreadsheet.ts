@@ -31,7 +31,7 @@ export type ImportRow = {
 
 const normHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
-async function sha256(buffer: ArrayBuffer) {
+export async function sha256(buffer: ArrayBuffer) {
   const digest = await crypto.subtle.digest('SHA-256', buffer)
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 }

@@ -11,6 +11,7 @@ import './analytics.css'
 import './admin-page.css'
 import './admin-workspace.css'
 import './app-shell.css'
+import './features.css'
 import './mobile.css'
 import { startTableLabels } from './lib/tableLabels'
 
