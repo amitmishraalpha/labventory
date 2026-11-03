@@ -55,7 +55,7 @@ export function startMock({ db, as, port, log = () => {} }) {
         const result = await as(userId, () => db.query(`select public.${fn}(${keys.map((key, i) => `${key} => $${i + 1}`).join(', ')}) as r`, values))
         return send(200, result.rows[0].r ?? null)
       }
-      // ---- PostgREST: reads with eq / gte / lte / in filters, order, offset/limit
+      // ---- PostgREST: reads with eq / gte / lte / gt / lt / in filters, order, offset/limit
       const table = url.pathname.match(/^\/rest\/v1\/(\w+)$/)?.[1]
       if (table && req.method === 'GET') {
         const exists = (await db.query(`select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = $1`, [table])).rows.length
@@ -66,7 +66,7 @@ export function startMock({ db, as, port, log = () => {} }) {
           const [op, ...rest] = value.split('.'); const operand = rest.join('.')
           const column = `t.${ident(key)}`
           if (op === 'eq') { params.push(operand); where.push(`${column}::text = $${params.length}`) }
-          else if (op === 'gte' || op === 'lte') { params.push(operand); where.push(`${column} ${op === 'gte' ? '>=' : '<='} $${params.length}`) }
+          else if (['gte', 'lte', 'gt', 'lt'].includes(op)) { params.push(operand); where.push(`${column} ${{ gte: '>=', lte: '<=', gt: '>', lt: '<' }[op]} $${params.length}`) }
           else if (op === 'in') { const list = operand.replace(/^\(|\)$/g, '').split(',').map(item => item.replace(/^"|"$/g, '')); params.push(list); where.push(`${column}::text = any($${params.length}::text[])`) }
           else if (op === 'is') where.push(`${column} is ${operand === 'null' ? 'null' : 'not null'}`)
           else throw new Error(`mock: unsupported filter ${op}`)

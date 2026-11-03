@@ -48,6 +48,15 @@ try {
     await page.getByRole('button', { name: /^Book \d/ }).click(); await page.getByText(/^Booked /).first().waitFor(T)
     assert((await db.query(`select count(*)::int n from public.flash_bookings`)).rows[0].n === 1, 'no booking saved')
   })
+  await check('flash chromatography: evening slots to 22:00 are shown and the 21:00 slot books as 21:00 IST', async () => {
+    const times = await page.locator('.slot-time').allInnerTexts()
+    assert(times.length === 13 && times[0].includes('09:00 – 10:00') && times[12].includes('21:00 – 22:00'), times.join(' | '))
+    await page.locator('.slot', { hasText: '21:00 – 22:00' }).locator('.slot-pick').click()
+    await page.getByRole('button', { name: 'Book 21:00–22:00' }).click(); await page.getByText(/^Booked 21:00–22:00/).waitFor(T)
+    const r = (await db.query(`select to_char(slot_start at time zone 'Asia/Kolkata', 'HH24:MI') s, to_char(slot_end at time zone 'Asia/Kolkata', 'HH24:MI') e from public.flash_bookings order by slot_start desc limit 1`)).rows[0]
+    assert(r.s === '21:00' && r.e === '22:00', JSON.stringify(r))
+    await page.locator('.slot', { hasText: '21:00 – 22:00' }).getByText('You').waitFor(T)
+  })
   await page.locator('aside.sidebar').getByRole('button', { name: 'Sign out' }).click(); await page.getByRole('button', { name: 'Sign in' }).waitFor(T)
   await signIn(page, 'admin@lab.test')
   await check('admin: researcher list, chemical register import (dry run) and activity log', async () => {

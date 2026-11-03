@@ -1,4 +1,4 @@
-// Starts the isolated stack for browser tests: PGlite (replica schema + migration) -> mock Supabase -> Vite dev.
+// Starts the isolated stack for browser tests: PGlite (replica schema + migrations) -> mock Supabase -> Vite dev.
 import { spawn } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,10 +6,10 @@ import { join } from 'node:path'
 import { setupDb, ROOT } from '../db/harness.mjs'
 import { startMock } from './mock-supabase.mjs'
 
-export const MIGRATION = 'supabase/migrations/20261031090000_solvents_corrections_orders.sql'
+export const MIGRATIONS = ['supabase/migrations/20261031090000_solvents_corrections_orders.sql', 'supabase/migrations/20261103090000_flash_evening_hours.sql']
 
 export async function startApp({ mockPort = 54329, vitePort = 5199, beforeMigrations } = {}) {
-  const dbh = await setupDb({ migrations: [MIGRATION], beforeMigrations })
+  const dbh = await setupDb({ migrations: MIGRATIONS, beforeMigrations })
   const mock = await startMock({ db: dbh.db, as: dbh.as, port: mockPort })
   const envDir = mkdtempSync(join(tmpdir(), 'labventory-env-'))
   const vite = spawn(process.execPath, [`${ROOT}node_modules/vite/bin/vite.js`, '--config', `${ROOT}tests/ui/vite.test.config.mjs`], {

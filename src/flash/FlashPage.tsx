@@ -5,7 +5,7 @@ import { getSupabaseErrorMessage, supabase } from '../lib/supabase'
 import { useAuth } from '../auth/AuthProvider'
 
 // Mirrors public.flash_config() in the database, which enforces these rules.
-export const FLASH = { tz: 'Asia/Kolkata', offset: '+05:30', open: 9, close: 18, maxSlots: 3, maxDaysAhead: 60 }
+export const FLASH = { tz: 'Asia/Kolkata', offset: '+05:30', open: 9, close: 22, maxSlots: 3, maxDaysAhead: 60 }
 type Booking = { id: string; booking_group: string; user_id: string; booked_by_name: string; slot_start: string; slot_end: string; purpose: string | null }
 type Holiday = { holiday_date: string; name: string; source: 'google' | 'admin' }
 type Group = { group: string; user_id: string; who: string; start: Date; end: Date; slots: number; purpose: string | null }
