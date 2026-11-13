@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { AlertTriangle, ArrowDownToLine, Beaker, Boxes, CalendarClock, ChevronDown, ChevronRight, Droplets, FlaskConical, History, LayoutDashboard, LogOut, MapPin, Menu, Magnet, PencilLine, RefreshCw, Scale, Search, ShoppingCart, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, Beaker, Boxes, CalendarClock, ChevronDown, ChevronRight, Droplets, FlaskConical, History, LayoutDashboard, LogOut, MapPin, Menu, Magnet, PencilLine, RefreshCw, Scale, Search, ShoppingCart, Users, X, Package } from 'lucide-react'
 import { useAuth } from './auth/AuthProvider'
 import { CATEGORY_LABEL, groupKey, groupTotal, isLowQuantity, lowSummary, percentLeft, qty, remainingText, startFor, useInventory, type Bottle, type Category, type ChemicalGroup, type Range, type Usage } from './data/InventoryProvider'
 import RecordUsageModal from './usage/RecordUsageModal'
@@ -23,7 +23,7 @@ const colors = ['#287c70', '#d88a48', '#6d91af', '#9a78a7', '#c16b63']
 function labelFor(date: Date, range: Range) { return range === '30d' ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) }
 function makeUsagePoints(rows: Usage[], range: Range) { const points = new Map<string, Point>(); const units = [...new Set(rows.map(row => row.quantity_unit?.trim() || 'Unknown unit'))]; const cursor = startFor(range); const end = new Date(); const monthly = range !== '30d'; while (cursor <= end) { points.set(labelFor(cursor, range), { label: labelFor(cursor, range) }); monthly ? cursor.setMonth(cursor.getMonth() + 1) : cursor.setDate(cursor.getDate() + 1) } rows.forEach(row => { const key = labelFor(new Date(row.created_at), range); const point = points.get(key) ?? { label: key }; const unit = row.quantity_unit?.trim() || 'Unknown unit'; point[unit] = Number(point[unit] ?? 0) + Math.abs(Number(row.quantity_change) || 0); points.set(key, point) }); return { points: [...points.values()], units } }
 function initials(name: string) { return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || '?' }
-const pageTitles: Record<string, string> = { '/': 'Overview', '/inventory': 'Inventory', '/chemicals': 'Chemicals', '/commercial-solvents': 'Commercial Solvents', '/nmr-solvents': 'NMR Solvents', '/low-stock': 'Low Stock', '/orders': 'Chemicals to Order', '/usage': 'Usage History', '/flash': 'Flash Chromatography', '/admin': 'Research Management' }
+const pageTitles: Record<string, string> = { '/': 'Overview', '/inventory': 'Inventory', '/chemicals': 'Chemicals', '/commercial-solvents': 'Commercial Solvents', '/nmr-solvents': 'NMR Solvents', '/low-stock': 'Low Stock', '/orders': 'Chemicals to Order', '/specialized-labware': 'Specialized Glassware / Plasticware', '/usage': 'Usage History', '/flash': 'Flash Chromatography', '/admin': 'Research Management' }
 
 export default function AppShell() {
   const { profile, session, signOut, reloadProfile } = useAuth(); const { bottles } = useInventory(); const [mobileNav, setMobileNav] = useState(false); const location = useLocation()
@@ -34,7 +34,7 @@ export default function AppShell() {
   const nav = [
     { to: '/', label: 'Overview', icon: LayoutDashboard }, { to: '/inventory', label: 'Inventory', icon: Boxes, badge: count('CHEMICAL') }, { to: '/chemicals', label: 'Chemicals', icon: FlaskConical },
     { to: '/commercial-solvents', label: 'Commercial Solvents', icon: Droplets, badge: count('COMMERCIAL_SOLVENT') }, { to: '/nmr-solvents', label: 'NMR Solvents', icon: Magnet, badge: count('NMR_SOLVENT') },
-    { to: '/low-stock', label: 'Low Stock', icon: AlertTriangle, badge: low }, { to: '/orders', label: 'Chemicals to Order', icon: ShoppingCart }, { to: '/usage', label: 'Usage History', icon: History },
+    { to: '/low-stock', label: 'Low Stock', icon: AlertTriangle, badge: low }, { to: '/orders', label: 'Chemicals to Order', icon: ShoppingCart }, { to: '/specialized-labware', label: 'Specialized Glassware / Plasticware', icon: Package }, { to: '/usage', label: 'Usage History', icon: History },
     { to: '/flash', label: 'Flash Chromatography', icon: CalendarClock }, ...(profile?.role === 'ADMIN' ? [{ to: '/admin', label: 'Research Management', icon: Users }] : []),
   ]
   const rename = async () => {

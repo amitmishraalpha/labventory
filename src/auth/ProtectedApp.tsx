@@ -12,6 +12,7 @@ import SolventsPage from '../solvents/SolventsPage'
 import LowStockPage from '../lowstock/LowStockPage'
 import OrdersPage from '../orders/OrdersPage'
 import { UsageHistoryPage } from '../usage/UsageHistory'
+import SpecializedLabwarePage from '../labware/SpecializedLabwarePage'
 
 function Blocked({ title, children }: { title: string; children: ReactNode }) {
   const { signOut } = useAuth()
@@ -45,6 +46,7 @@ export default function ProtectedApp() {
         <Route path="nmr-solvents" element={<SolventsPage key="nmr" category="NMR_SOLVENT" />} />
         <Route path="low-stock" element={<LowStockPage />} />
         <Route path="orders" element={<OrdersPage />} />
+        <Route path="specialized-labware" element={<SpecializedLabwarePage />} />
         <Route path="usage" element={<UsageHistoryPage />} />
         <Route path="flash" element={<FlashPage />} />
         <Route path="admin" element={<RequireAdmin><AdminWorkspacePage /></RequireAdmin>} />

@@ -4,13 +4,13 @@ import { Ban, Check, ChevronDown, ChevronRight, PackageCheck, PencilLine, Plus, 
 import { supabase } from '../lib/supabase'
 import { explainError } from '../lib/errors'
 import { useAuth } from '../auth/AuthProvider'
-import { CATEGORY_LABEL, fetchAll, round, useInventory, type Category } from '../data/InventoryProvider'
+import { CATEGORY_LABEL, fetchAll, round, useInventory } from '../data/InventoryProvider'
 import { ExportMenu, Pager, StatusBadge, usePaged } from '../components/TableTools'
 import { fmtDate, fmtDateTime, type ExportColumn } from '../lib/exporter'
 import { matchesChemical } from '../lib/search'
 
 export type OrderRequest = {
-  id: string; chemical_id: string | null; source_bottle_id: string | null; chemical_name: string; cas_number: string | null; molecular_formula: string | null; category: Category
+  id: string; chemical_id: string | null; source_bottle_id: string | null; chemical_name: string; cas_number: string | null; molecular_formula: string | null; category: string; item_category: 'CHEMICAL' | 'GLASSWARE'; catalogue_number: string | null; price: number | null; currency: string; item_name: string | null; manufacturer: string | null; size: string | null; dimensions: string | null
   requested_quantity: number; quantity_unit: string; preferred_pack_size: string | null; preferred_supplier: string | null; reason: string | null; experiment: string | null; priority: string; notes: string | null
   status: string; requested_by: string; requested_at: string; supplier: string | null; purchase_order_number: string | null; order_date: string | null; expected_delivery: string | null; unit_price: number | null
   admin_notes: string | null; decision_note: string | null; quantity_received: number; updated_at: string
@@ -35,23 +35,25 @@ function useSubmit() {
   return { busy, error, setError, run }
 }
 
-type FormState = Record<'chemical_name' | 'cas_number' | 'molecular_formula' | 'category' | 'requested_quantity' | 'quantity_unit' | 'preferred_pack_size' | 'preferred_supplier' | 'reason' | 'experiment' | 'priority' | 'notes', string>
-const blankForm: FormState = { chemical_name: '', cas_number: '', molecular_formula: '', category: 'CHEMICAL', requested_quantity: '', quantity_unit: 'g', preferred_pack_size: '', preferred_supplier: '', reason: '', experiment: '', priority: 'Normal', notes: '' }
+type FormState = Record<'chemical_name' | 'cas_number' | 'catalogue_number' | 'item_category' | 'manufacturer' | 'size' | 'dimensions' | 'price' | 'currency' | 'requested_quantity' | 'quantity_unit' | 'preferred_pack_size' | 'preferred_supplier' | 'reason' | 'experiment' | 'priority' | 'notes', string>
+const blankForm: FormState = { chemical_name: '', cas_number: '', catalogue_number: '', item_category: 'CHEMICAL', manufacturer: '', size: '', dimensions: '', price: '', currency: 'INR', requested_quantity: '', quantity_unit: 'g', preferred_pack_size: '', preferred_supplier: '', reason: '', experiment: '', priority: 'Normal', notes: '' }
 
 /** New request, or editing an open one (requester while Requested / Pending Approval; Admin while open). */
 function RequestForm({ existing, prefill, onClose, onSaved }: { existing?: OrderRequest; prefill?: Partial<FormState> & { chemical_id?: string; source_bottle_id?: string }; onClose: () => void; onSaved: (message: string) => void }) {
-  const start: FormState = existing ? { chemical_name: existing.chemical_name, cas_number: existing.cas_number ?? '', molecular_formula: existing.molecular_formula ?? '', category: existing.category, requested_quantity: String(existing.requested_quantity), quantity_unit: existing.quantity_unit, preferred_pack_size: existing.preferred_pack_size ?? '', preferred_supplier: existing.preferred_supplier ?? '', reason: existing.reason ?? '', experiment: existing.experiment ?? '', priority: existing.priority, notes: existing.notes ?? '' }
+  const start: FormState = existing ? { chemical_name: existing.item_name ?? existing.chemical_name, cas_number: existing.cas_number ?? '', catalogue_number: existing.catalogue_number ?? '', item_category: existing.item_category ?? 'CHEMICAL', manufacturer: existing.manufacturer ?? existing.preferred_supplier ?? '', size: existing.size ?? existing.preferred_pack_size ?? '', dimensions: existing.dimensions ?? '', price: existing.price == null ? (existing.unit_price == null ? '' : String(existing.unit_price)) : String(existing.price), currency: existing.currency ?? 'INR', requested_quantity: String(existing.requested_quantity), quantity_unit: existing.quantity_unit, preferred_pack_size: existing.preferred_pack_size ?? '', preferred_supplier: existing.preferred_supplier ?? '', reason: existing.reason ?? '', experiment: existing.experiment ?? '', priority: existing.priority, notes: existing.notes ?? '' }
     : { ...blankForm, ...Object.fromEntries(Object.entries(prefill ?? {}).filter(([key, value]) => key in blankForm && value)) as Partial<FormState> }
   if (!UNITS.includes(start.quantity_unit)) start.quantity_unit = 'g'
   const [form, setForm] = useState(start); const [duplicate, setDuplicate] = useState(''); const { busy, error, setError, run } = useSubmit()
   const set = (key: keyof FormState) => (event: { target: { value: string } }) => setForm(current => ({ ...current, [key]: event.target.value }))
   const submit = async (event: FormEvent | null, allowDuplicate = false) => {
     event?.preventDefault(); setDuplicate('')
-    if (!form.chemical_name.trim()) { setError('Enter the chemical name.'); return }
-    if (!(Number(form.requested_quantity) > 0)) { setError('Enter the quantity needed.'); return }
+    if (!form.chemical_name.trim()) { setError(form.item_category === 'GLASSWARE' ? 'Enter the item name.' : 'Enter the chemical name.'); return }
+    if (form.item_category === 'GLASSWARE' && (!form.manufacturer.trim() || !form.size.trim())) { setError('Enter the manufacturer and size.'); return }
+    if (!(Number(form.requested_quantity) > 0) || (form.item_category === 'GLASSWARE' && !Number.isInteger(Number(form.requested_quantity)))) { setError('Enter a positive quantity.'); return }
+    if (form.price && Number(form.price) < 0) { setError('Price cannot be negative.'); return }
     const trimmed = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value.trim()]))
     if (existing) {
-      const changes = Object.fromEntries(Object.entries(trimmed).filter(([key, value]) => key !== 'category' && value !== (start[key as keyof FormState] ?? '').trim()))
+      const changes = Object.fromEntries(Object.entries(trimmed).filter(([key, value]) => value !== (start[key as keyof FormState] ?? '').trim()))
       if (!Object.keys(changes).length) { setError('Nothing has changed.'); return }
       if (await run(() => supabase.rpc('update_order_request', { p_id: existing.id, p_changes: changes }), 'The request could not be saved.')) onSaved(`Saved changes to the request for ${form.chemical_name.trim()}.`)
       return
@@ -62,15 +64,14 @@ function RequestForm({ existing, prefill, onClose, onSaved }: { existing?: Order
     onSaved(`${form.chemical_name.trim()} was added to the order list. The Admin will review it.`)
   }
   return <div className="modal-backdrop" onClick={onClose}><form className="modal usage-modal wide-form" onClick={event => event.stopPropagation()} onSubmit={event => void submit(event)}>
-    <div className="modal-head"><div><span className="eyebrow">{existing ? 'EDIT REQUEST' : 'ADD CHEMICAL TO ORDER'}</span><h2>{existing ? existing.chemical_name : 'Chemical to be ordered'}</h2><p>A request is not stock: nothing is added to the inventory until it is received.</p></div><button type="button" className="close" onClick={onClose} aria-label="Close"><X size={18}/></button></div>
+    <div className="modal-head"><div><span className="eyebrow">{existing ? 'EDIT REQUEST' : 'ADD ITEM TO ORDER'}</span><h2>{existing ? existing.chemical_name : 'Purchase request'}</h2><p>A request is not stock: nothing is added to the inventory until it is received.</p></div><button type="button" className="close" onClick={onClose} aria-label="Close"><X size={18}/></button></div>
     <div className="form-grid">
-      <Field label="Chemical name"><input required value={form.chemical_name} onChange={set('chemical_name')}/></Field>
-      <Field label="CAS No" hint="If known"><input value={form.cas_number} onChange={set('cas_number')} placeholder="e.g. 865-49-6"/></Field>
-      <Field label="Molecular formula" hint="If known"><input value={form.molecular_formula} onChange={set('molecular_formula')}/></Field>
-      {!existing && <Field label="Inventory"><select value={form.category} onChange={set('category')}>{(Object.keys(CATEGORY_LABEL) as Category[]).map(value => <option key={value} value={value}>{CATEGORY_LABEL[value]}</option>)}</select></Field>}
+      {!existing && <Field label="Item Category"><select value={form.item_category} onChange={set('item_category')}><option value="CHEMICAL">Chemicals</option><option value="GLASSWARE">Glassware/Plasticware</option></select></Field>}
+      <Field label={form.item_category === 'GLASSWARE' ? 'Item Name' : 'Chemical name'}><input required value={form.chemical_name} onChange={set('chemical_name')}/></Field>
+      {form.item_category === 'CHEMICAL' ? <><Field label="CAS No" hint="If known"><input value={form.cas_number} onChange={set('cas_number')} placeholder="e.g. 865-49-6"/></Field><Field label="Catalogue Number" hint="Manufacturer or supplier reference"><input value={form.catalogue_number} onChange={set('catalogue_number')}/></Field></> : <><Field label="Make / Manufacturer"><input required value={form.manufacturer} onChange={set('manufacturer')}/></Field><Field label="Size"><input required value={form.size} onChange={set('size')}/></Field><Field label="Dimensions (if applicable)"><input value={form.dimensions} onChange={set('dimensions')}/></Field></>}
       <Field label="Quantity needed"><div className="usage-amount"><input type="number" min="0" step="any" required value={form.requested_quantity} onChange={set('requested_quantity')}/><select value={form.quantity_unit} onChange={set('quantity_unit')} aria-label="Unit">{UNITS.map(unit => <option key={unit}>{unit}</option>)}</select></div></Field>
-      <Field label="Preferred pack size" hint="e.g. 100 mL"><input value={form.preferred_pack_size} onChange={set('preferred_pack_size')}/></Field>
-      <Field label="Manufacturer / supplier preference"><input value={form.preferred_supplier} onChange={set('preferred_supplier')}/></Field>
+      {form.item_category === 'CHEMICAL' && <><Field label="Preferred pack size" hint="e.g. 100 mL"><input value={form.preferred_pack_size} onChange={set('preferred_pack_size')}/></Field><Field label="Manufacturer / supplier preference"><input value={form.preferred_supplier} onChange={set('preferred_supplier')}/></Field></>}
+      <Field label="Price (₹)" hint="Optional unit price"><input type="number" min="0" step="0.01" value={form.price} onChange={set('price')}/></Field>
       <Field label="Priority"><select value={form.priority} onChange={set('priority')}>{PRIORITIES.map(value => <option key={value}>{value}</option>)}</select></Field>
       <Field label="Experiment / project"><input value={form.experiment} onChange={set('experiment')}/></Field>
     </div>
@@ -137,7 +138,7 @@ function ReceiveModal({ request, onClose, onSaved }: { request: OrderRequest; on
   }
   return <div className="modal-backdrop" onClick={onClose}><form className="modal usage-modal wide-form" onClick={event => event.stopPropagation()} onSubmit={check}>
     <div className="modal-head"><div><span className="eyebrow">RECEIVE STOCK</span><h2>{request.chemical_name}</h2><p>Ordered {round(request.requested_quantity)} {request.quantity_unit}; received so far {round(request.quantity_received)} {request.quantity_unit}. Each physical bottle is received separately.</p></div><button type="button" className="close" onClick={onClose} aria-label="Close"><X size={18}/></button></div>
-    {confirming ? <div className="review-box"><h3>Confirm receipt</h3><dl><dt>New bottle</dt><dd><b>{form.bottle_id}</b> · {form.quantity} {form.unit} · {CATEGORY_LABEL[request.category]}</dd><dt>Chemical record</dt><dd>{chemicalId ? `Existing: ${candidates.find(c => c.id === chemicalId)?.name}` : 'New chemical record'}</dd><dt>Location</dt><dd>{[form.place, form.tray].filter(Boolean).join(' / ') || '—'}</dd></dl><p className="muted-note">This creates the bottle and a stock-in transaction in one step.</p></div> : <>
+    {confirming ? <div className="review-box"><h3>Confirm receipt</h3><dl><dt>New bottle</dt><dd><b>{form.bottle_id}</b> · {form.quantity} {form.unit} · {request.item_category === 'GLASSWARE' ? 'Glassware/Plasticware' : CATEGORY_LABEL[request.category as keyof typeof CATEGORY_LABEL] ?? 'Chemical'}</dd><dt>Chemical record</dt><dd>{chemicalId ? `Existing: ${candidates.find(c => c.id === chemicalId)?.name}` : 'New chemical record'}</dd><dt>Location</dt><dd>{[form.place, form.tray].filter(Boolean).join(' / ') || '—'}</dd></dl><p className="muted-note">This creates the bottle and a stock-in transaction in one step.</p></div> : <>
       <Field label="Chemical record" hint="Choose an existing record only if it is the same chemical"><select value={chemicalId} onChange={event => setChemicalId(event.target.value)}>{candidates.map(c => <option key={c.id} value={c.id}>Existing: {c.name}{c.cas ? ` (${c.cas})` : ''}</option>)}<option value="">New chemical record: {request.chemical_name}</option></select></Field>
       <div className="form-grid">
         <Field label="New Bottle ID" hint="Unique"><input required value={form.bottle_id} onChange={set('bottle_id')}/></Field>
@@ -184,7 +185,7 @@ export default function OrdersPage() {
   const close = () => { setAction(null); if (prefill) navigate('/orders', { replace: true, state: null }) }
   const counts = useMemo(() => Object.fromEntries(ORDER_STATUSES.map(s => [s, (rows ?? []).filter(r => r.status === s).length])), [rows])
   const columns: ExportColumn<OrderRequest>[] = [
-    { header: 'Chemical name', value: r => r.chemical_name }, { header: 'CAS No', value: r => r.cas_number }, { header: 'Molecular formula', value: r => r.molecular_formula }, { header: 'Inventory', value: r => CATEGORY_LABEL[r.category] },
+    { header: 'Item Category', value: r => r.item_category === 'GLASSWARE' ? 'Glassware/Plasticware' : 'Chemicals' }, { header: 'Chemical / Item name', value: r => r.item_name ?? r.chemical_name }, { header: 'CAS No', value: r => r.cas_number }, { header: 'Catalogue Number', value: r => r.catalogue_number }, { header: 'Manufacturer', value: r => r.manufacturer ?? r.preferred_supplier }, { header: 'Size', value: r => r.size }, { header: 'Dimensions', value: r => r.dimensions }, { header: 'Price', value: r => r.price == null ? 'Not Provided' : `₹${r.price}` },
     { header: 'Requested quantity', value: r => round(r.requested_quantity) }, { header: 'Unit', value: r => r.quantity_unit }, { header: 'Preferred pack size', value: r => r.preferred_pack_size }, { header: 'Supplier preference', value: r => r.preferred_supplier },
     { header: 'Reason', value: r => r.reason }, { header: 'Experiment / project', value: r => r.experiment }, { header: 'Priority', value: r => r.priority }, { header: 'Status', value: r => r.status },
     { header: 'Requested by', value: r => people.get(r.requested_by) ?? '' }, { header: 'Requested at', value: r => fmtDateTime(r.requested_at) }, { header: 'Supplier', value: r => r.supplier }, { header: 'PO No.', value: r => r.purchase_order_number },
@@ -215,7 +216,7 @@ export default function OrdersPage() {
       <ExportMenu baseName="chemicals-to-order" title="Chemicals to be ordered" columns={columns} scopes={[{ key: 'matching', label: 'All matching requests', rows: filtered }, { key: 'page', label: 'Current page', rows: paged.visible }, { key: 'all', label: 'All requests', rows: rows ?? [] }]}/></div>
       <div className="table-wrap"><table className="cards"><thead><tr><th>CHEMICAL</th><th>QUANTITY</th><th>PRIORITY</th><th>REQUESTED BY</th><th>STATUS</th><th>ORDER</th><th>ACTIONS</th><th></th></tr></thead><tbody>
         {rows === null ? <tr><td colSpan={8}><div className="loading-row">Loading requests...</div></td></tr> : paged.visible.map(r => { const expanded = open === r.id; const events = history.get(r.id) ?? []; return <Fragment key={r.id}><tr>
-          <td><b>{r.chemical_name}</b><small className="cell-note">{[r.cas_number, CATEGORY_LABEL[r.category], r.preferred_pack_size && `pack ${r.preferred_pack_size}`].filter(Boolean).join(' · ')}</small>{r.reason && <small className="cell-note">{r.reason}</small>}</td>
+          <td><b>{r.item_name ?? r.chemical_name}</b><small className="cell-note">{[r.cas_number, r.item_category === 'GLASSWARE' ? 'Glassware/Plasticware' : 'Chemicals', r.catalogue_number, r.preferred_pack_size && `pack ${r.preferred_pack_size}`].filter(Boolean).join(' · ')}</small>{r.reason && <small className="cell-note">{r.reason}</small>}{r.price != null && <small className="cell-note">₹{r.price} unit price</small>}</td>
           <td><b>{round(r.requested_quantity)} {r.quantity_unit}</b>{r.quantity_received > 0 && <small className="cell-note">received {round(r.quantity_received)} {r.quantity_unit}</small>}</td>
           <td><span className={`priority ${r.priority.toLowerCase()}`}>{r.priority}</span></td>
           <td>{r.requested_by === profile?.id ? 'You' : people.get(r.requested_by) ?? 'Unknown user'}<small className="cell-note">{fmtDate(r.requested_at)}</small></td>
