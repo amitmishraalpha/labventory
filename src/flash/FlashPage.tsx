@@ -6,9 +6,9 @@ import { useAuth } from '../auth/AuthProvider'
 
 // Mirrors public.flash_config() in the database, which enforces these rules.
 export const FLASH = { tz: 'Asia/Kolkata', offset: '+05:30', open: 9, close: 22, maxSlots: 3, maxDaysAhead: 60 }
-type Booking = { id: string; booking_group: string; user_id: string; booked_by_name: string; slot_start: string; slot_end: string; purpose: string | null }
+type Booking = { id: string; booking_group: string; user_id: string; booked_by_name: string; slot_start: string; slot_end: string; purpose: string | null; created_at: string; booking_type: 'ADVANCE' | 'RETROSPECTIVE' }
 type Holiday = { holiday_date: string; name: string; source: 'google' | 'admin' }
-type Group = { group: string; user_id: string; who: string; start: Date; end: Date; slots: number; purpose: string | null }
+type Group = { group: string; user_id: string; who: string; start: Date; end: Date; slots: number; purpose: string | null; createdAt: Date; bookingType: Booking['booking_type'] }
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const labDate = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: FLASH.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
@@ -20,7 +20,7 @@ const HOURS = Array.from({ length: FLASH.close - FLASH.open }, (_, i) => FLASH.o
 
 function explain(message: string) {
   if (message.includes('Could not find the function public.book_flash_slots') || message.includes("Could not find the table 'public.flash_bookings'")) return 'Flash booking is not installed in Supabase yet. Apply migration 20261018180000_flash_chromatography.sql.'
-  const known = message.match(/^(SLOT_TAKEN|HOLIDAY|OUTSIDE_LAB_HOURS|SLOT_IN_PAST|TOO_FAR_AHEAD|INVALID_DURATION|NOT_YOUR_BOOKING|ALREADY_STARTED): (.*)$/)
+  const known = message.match(/^(SLOT_TAKEN|HOLIDAY|OUTSIDE_LAB_HOURS|SLOT_IN_PAST|DATE_IN_PAST|TOO_FAR_AHEAD|INVALID_DURATION|NOT_YOUR_BOOKING|ALREADY_STARTED): (.*)$/)
   if (known) return known[2].charAt(0).toUpperCase() + known[2].slice(1) + '.'
   if (message.includes('ACCOUNT_NOT_ACTIVE')) return 'Your account is not active.'
   return message
@@ -33,13 +33,14 @@ export default function FlashPage() {
   const [bookings, setBookings] = useState<Booking[]>([]); const [holidays, setHolidays] = useState<Holiday[]>([])
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   const [start, setStart] = useState<number | null>(null); const [slots, setSlots] = useState(1); const [purpose, setPurpose] = useState(''); const [busy, setBusy] = useState(false)
+  const [historyFilter, setHistoryFilter] = useState<'ALL' | Booking['booking_type']>('ALL')
   const inFlight = useRef(false); const [now, setNow] = useState(() => new Date())
 
   const load = useCallback(async () => {
     const monthStart = `${month}-01`, monthEnd = addDays(addDays(monthStart, 31).slice(0, 7) + '-01', 0)
     const from = [monthStart, today].sort()[0], to = [monthEnd, addDays(today, FLASH.maxDaysAhead + 1)].sort()[1]
     const [b, h] = await Promise.all([
-      supabase.from('flash_bookings').select('id,booking_group,user_id,booked_by_name,slot_start,slot_end,purpose').is('cancelled_at', null).gte('slot_start', slotStart(from, 0).toISOString()).lt('slot_start', slotStart(to, 0).toISOString()).order('slot_start').limit(5000),
+      supabase.from('flash_bookings').select('id,booking_group,user_id,booked_by_name,slot_start,slot_end,purpose,created_at,booking_type').is('cancelled_at', null).gte('slot_start', slotStart(from, 0).toISOString()).lt('slot_start', slotStart(to, 0).toISOString()).order('slot_start').limit(5000),
       supabase.from('flash_holidays').select('holiday_date,name,source').gte('holiday_date', addDays(today, -31)).order('holiday_date'),
     ])
     const failure = b.error ?? h.error
@@ -60,10 +61,10 @@ export default function FlashPage() {
 
   const holidayOn = useMemo(() => new Map(holidays.map(h => [h.holiday_date, h])), [holidays])
   const bySlot = useMemo(() => new Map(bookings.map(b => [new Date(b.slot_start).getTime(), b])), [bookings])
-  const groups = useMemo<Group[]>(() => { const map = new Map<string, Group>(); for (const b of bookings) { const g = map.get(b.booking_group); const s = new Date(b.slot_start), e = new Date(b.slot_end); if (!g) map.set(b.booking_group, { group: b.booking_group, user_id: b.user_id, who: b.booked_by_name, start: s, end: e, slots: 1, purpose: b.purpose }); else { g.slots++; if (s < g.start) g.start = s; if (e > g.end) g.end = e } } return [...map.values()].sort((a, b) => a.start.getTime() - b.start.getTime()) }, [bookings])
+  const groups = useMemo<Group[]>(() => { const map = new Map<string, Group>(); for (const b of bookings) { const g = map.get(b.booking_group); const s = new Date(b.slot_start), e = new Date(b.slot_end); if (!g) map.set(b.booking_group, { group: b.booking_group, user_id: b.user_id, who: b.booked_by_name, start: s, end: e, slots: 1, purpose: b.purpose, createdAt: new Date(b.created_at), bookingType: b.booking_type }); else { g.slots++; if (s < g.start) g.start = s; if (e > g.end) g.end = e } } return [...map.values()].sort((a, b) => a.start.getTime() - b.start.getTime()) }, [bookings])
   const holiday = holidayOn.get(day)
-  const slotState = (hour: number) => { const at = slotStart(day, hour); const b = bySlot.get(at.getTime()); return b ? { kind: 'booked' as const, booking: b } : at < now ? { kind: 'past' as const } : holiday ? { kind: 'holiday' as const } : { kind: 'free' as const } }
-  const maxFrom = (hour: number) => { let n = 0; while (n < FLASH.maxSlots && hour + n < FLASH.close && slotState(hour + n).kind === 'free') n++; return n }
+  const slotState = (hour: number) => { const at = slotStart(day, hour); const b = bySlot.get(at.getTime()); return b ? { kind: 'booked' as const, booking: b } : holiday ? { kind: 'holiday' as const } : at < now ? { kind: 'past' as const } : { kind: 'free' as const } }
+  const maxFrom = (hour: number) => { let n = 0; while (n < FLASH.maxSlots && hour + n < FLASH.close && ['free', 'past'].includes(slotState(hour + n).kind)) n++; return n }
   const tooFar = day > addDays(today, FLASH.maxDaysAhead)
   useEffect(() => { setStart(null); setSlots(1) }, [day])
   useEffect(() => { if (start !== null && slots > maxFrom(start)) setSlots(Math.max(1, maxFrom(start))) }) // a slot was taken meanwhile
@@ -103,7 +104,7 @@ export default function FlashPage() {
         <div className="flash-day-head"><button className="icon-button" aria-label="Previous day" disabled={day <= today} onClick={() => setDay(addDays(day, -1))}><ChevronLeft size={16}/></button><h3>{dayLabel(day, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3><button className="icon-button" aria-label="Next day" disabled={day >= addDays(today, FLASH.maxDaysAhead)} onClick={() => setDay(addDays(day, 1))}><ChevronRight size={16}/></button></div>
         {holiday && <div className="flash-holiday"><CalendarOff size={16}/> {holiday.name} — {holiday.source === 'google' ? 'public holiday (Google Calendar)' : 'lab closed'}. The instrument cannot be booked.</div>}
         {tooFar && <div className="user-error">Bookings open {FLASH.maxDaysAhead} days in advance.</div>}
-        <div className="slot-list">{loading ? <div className="loading-row">Loading bookings...</div> : HOURS.map(hour => { const state = slotState(hour); const selected = start !== null && hour >= start && hour < start + slots; return <div key={hour} className={`slot slot-${state.kind}${selected ? ' selected' : ''}`}><span className="slot-time"><Clock size={12}/> {pad(hour)}:00 – {pad(hour + 1)}:00</span>{state.kind === 'booked' ? <span className="slot-who"><b>{state.booking.user_id === profile?.id ? 'You' : state.booking.booked_by_name}</b>{state.booking.purpose && <small>{state.booking.purpose}</small>}</span> : state.kind === 'free' && !tooFar ? <button type="button" className={selected ? 'primary slot-pick' : 'secondary slot-pick'} onClick={() => { setStart(hour); setSlots(s => Math.min(Math.max(1, s), maxFrom(hour))) }}>{selected ? 'Selected' : 'Available'}</button> : <span className="muted">{state.kind === 'past' ? 'Past' : state.kind === 'holiday' ? 'Holiday' : '—'}</span>}</div> })}</div>
+        <div className="slot-list">{loading ? <div className="loading-row">Loading bookings...</div> : HOURS.map(hour => { const state = slotState(hour); const selected = start !== null && hour >= start && hour < start + slots; return <div key={hour} className={`slot slot-${state.kind}${selected ? ' selected' : ''}`}><span className="slot-time"><Clock size={12}/> {pad(hour)}:00 – {pad(hour + 1)}:00</span>{state.kind === 'booked' ? <span className="slot-who"><b>{state.booking.user_id === profile?.id ? 'You' : state.booking.booked_by_name}</b><small>{state.booking.booking_type === 'RETROSPECTIVE' ? 'Retrospective booking' : 'Advance booking'}{state.booking.purpose ? ` · ${state.booking.purpose}` : ''}</small></span> : ['free', 'past'].includes(state.kind) && !tooFar ? <button type="button" className={selected ? 'primary slot-pick' : 'secondary slot-pick'} onClick={() => { setStart(hour); setSlots(s => Math.min(Math.max(1, s), maxFrom(hour))) }}>{selected ? 'Selected' : state.kind === 'past' ? 'Past – Available for Recording' : 'Available'}</button> : <span className="muted">{state.kind === 'holiday' ? 'Holiday' : '—'}</span>}</div> })}</div>
         {start !== null && <form className="flash-form" onSubmit={book}>
           <label>Duration<select value={slots} onChange={event => setSlots(Number(event.target.value))}>{Array.from({ length: FLASH.maxSlots }, (_, i) => i + 1).map(n => <option key={n} value={n} disabled={n > maxFrom(start)}>{n} hour{n > 1 ? 's' : ''} ({pad(start)}:00–{pad(start + n)}:00){n > maxFrom(start) ? ' — not available' : ''}</option>)}</select></label>
           <label>Purpose <small>Optional</small><input value={purpose} maxLength={200} onChange={event => setPurpose(event.target.value)} placeholder="e.g. Purification of compound 4b"/></label>
@@ -117,6 +118,7 @@ export default function FlashPage() {
     <section className="panel chart-panel flash-histogram"><div className="panel-heading"><div><h2>Flash usage per researcher</h2><p>Bookings per person in {new Date(`${month}-15T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}; a 2–3 hour booking counts once</p></div><input className="analytics-select" type="month" value={month} onChange={event => event.target.value && setMonth(event.target.value)} aria-label="Month"/></div>
       <div className="chart">{histogram.length === 0 ? <div className="empty-users">No Flash bookings in this month.</div> : <ResponsiveContainer width="100%" height="100%"><BarChart data={histogram} margin={{ left: 0, right: 16, top: 8 }}><CartesianGrid vertical={false} stroke="#e4ebe7"/><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#64736e', fontSize: 11 }}/><YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: '#83918c', fontSize: 11 }}/><Tooltip formatter={(value, key) => [`${value} booking${Number(value) === 1 ? '' : 's'}`, key]} labelFormatter={(label, items) => `${label} · ${items?.[0]?.payload?.hours ?? 0} h booked`}/><Legend/><Bar dataKey="Completed" stackId="u" fill="#287c70" radius={[0, 0, 0, 0]}/><Bar dataKey="Upcoming" stackId="u" fill="#85b9ae" radius={[4, 4, 0, 0]}/></BarChart></ResponsiveContainer>}</div>
     </section>
+    <section className="panel flash-history"><div className="panel-heading"><div><h2>Booking history</h2><p>Scheduled usage time is separate from when the booking was recorded.</p></div><select className="analytics-select" value={historyFilter} onChange={event => setHistoryFilter(event.target.value as typeof historyFilter)} aria-label="Booking type"><option value="ALL">All bookings</option><option value="ADVANCE">Advance bookings</option><option value="RETROSPECTIVE">Retrospective bookings</option></select></div><div className="table-wrap"><table className="compact-table"><thead><tr><th>RESEARCHER</th><th>SCHEDULED USAGE</th><th>BOOKING TYPE</th><th>BOOKING RECORDED AT</th></tr></thead><tbody>{groups.filter(group => historyFilter === 'ALL' || group.bookingType === historyFilter).slice().reverse().map(group => <tr key={group.group}><td>{group.user_id === profile?.id ? 'You' : group.who}</td><td>{dayLabel(labDate(group.start), { day: 'numeric', month: 'short', year: 'numeric' })} · {labTime(group.start)}–{labTime(group.end)}</td><td><span className={`status-badge ${group.bookingType === 'RETROSPECTIVE' ? 'pending' : 'ok'}`}>{group.bookingType === 'RETROSPECTIVE' ? 'Retrospective' : 'Advance'}</span></td><td>{group.createdAt.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</td></tr>)}{groups.filter(group => historyFilter === 'ALL' || group.bookingType === historyFilter).length === 0 && <tr><td colSpan={4}><div className="empty-users">No bookings match this filter.</div></td></tr>}</tbody></table></div></section>
     {isAdmin && <HolidayAdmin holidays={holidays} today={today} onChanged={load} setError={setError} setNotice={setNotice}/>}
   </div>
 }
